@@ -1,78 +1,130 @@
-import { Expr, Stmt, Type } from "./ast";
+import { Program, VarDef, TypedVar, Literal, FunDef, Parameter, Stmt, Expr, Type } from "./ast";
 
-type FunctionsEnv = Map<string, [Type[], Type]>;
+type FunEnv = Map<string, FunDef<Type>>;
 type BodyEnv = Map<string, Type>;
 
-export function tcExpr(e : Expr, functions : FunctionsEnv, variables : BodyEnv) : Type {
+export function tcExpr(e : Expr<null>, functions : FunEnv, variables : BodyEnv) : Expr<Type> {
   switch(e.tag) {
-    case "number": return "int";
-    case "id": return variables.get(e.name);
-    case "call":
-      if(!functions.has(e.name)) {
-        throw new Error(`function ${e.name} not found`);
+    case "literal":
+      switch(e.value.tag) {
+        case "num": return {...e, a: Type.Int};
+        case "bool": return {...e, a: Type.Bool};
+        case "none": return {...e, a: Type.None};
+        default: throw new Error(`TypeError: unrecognized literal type ${e.value}`)
       }
+    case "id": return {...e, a: variables.get(e.name)};
+  //   case "call":
+  //     if(!functions.has(e.name)) {
+  //       throw new Error(`function ${e.name} not found`);
+  //     }
 
-      const [args, ret] = functions.get(e.name);
-      if(args.length !== e.arguments.length) {
-        throw new Error(`Expected ${args.length} arguments but got ${e.arguments.length}`);
-      }
+  //     const [args, ret] = functions.get(e.name);
+  //     if(args.length !== e.args.length) {
+  //       throw new Error(`Expected ${args.length} arguments but got ${e.args.length}`);
+  //     }
 
-      args.forEach((a, i) => {
-        const argtyp = tcExpr(e.arguments[i], functions, variables);
-        if(a !== argtyp) { throw new Error(`Got ${argtyp} as argument ${i + 1}, expected ${a}`); }
-      });
+  //     args.forEach((a, i) => {
+  //       const argtyp = tcExpr(e.args[i], functions, variables);
+  //       if(a !== argtyp) { throw new Error(`Got ${argtyp} as argument ${i + 1}, expected ${a}`); }
+  //     });
 
-      return ret;
+  //     return ret;
   }
 }
 
-export function tcStmt(s : Stmt, functions : FunctionsEnv, variables : BodyEnv, currentReturn : Type) {
+export function tcStmt(s : Stmt<null>, funEnvs : FunEnv, bodyEnvs : BodyEnv, currentReturn : Type) : Stmt<Type> {
   switch(s.tag) {
     case "assign": {
-      const rhs = tcExpr(s.value, functions, variables);
-      if(variables.has(s.name) && variables.get(s.name) !== rhs) {
-        throw new Error(`Cannot assign ${rhs} to ${variables.get(s.name)}`);
+      const rhs = tcExpr(s.value, funEnvs, bodyEnvs);
+      
+      if(bodyEnvs.has(s.name) && bodyEnvs.get(s.name) !== rhs.a) {
+          // Mismatch assignment
+          throwError(`Cannot assign ${rhs} to ${bodyEnvs.get(s.name)}`);
       }
-      else {
-        variables.set(s.name, rhs);
-      }
-      return;
+      return {...s, a: rhs.a};
     }
-    case "define": {
-      const bodyvars = new Map<string, Type>(variables.entries());
-      s.parameters.forEach(p => { bodyvars.set(p.name, p.typ)});
-      s.body.forEach(bs => tcStmt(bs, functions, bodyvars, s.ret));
-      return;
-    }
-    case "expr": {
-      tcExpr(s.expr, functions, variables);
-      return;
-    }
-    case "return": {
-      const valTyp = tcExpr(s.value, functions, variables);
-      if(valTyp !== currentReturn) {
-        throw new Error(`${valTyp} returned but ${currentReturn} expected.`);
-      }
-      return;
-    }
+    case "expr": return {...s, a: tcExpr(s.expr, funEnvs, bodyEnvs).a};
+    // case "define": {
+    //   const bodyvars = new Map<string, Type>(variables.entries());
+    //   s.params.forEach(p => { bodyvars.set(p.name, p.typ)});
+    //   s.body.forEach(bs => tcStmt(bs, functions, bodyvars, s.ret));
+    //   return;
+    // }
+    // case "return": {
+    //   const valTyp = tcExpr(s.value, functions, variables);
+    //   if(valTyp !== currentReturn) {
+    //     throw new Error(`${valTyp} returned but ${currentReturn} expected.`);
+    //   }
+    //   return;
+    // }
   }
 }
 
-export function tcProgram(p : Stmt[]) {
-  const functions = new Map<string, [Type[], Type]>();
-  p.forEach(s => {
-    if(s.tag === "define") {
-      functions.set(s.name, [s.parameters.map(p => p.typ), s.ret]);
-    }
+export function tcLiteral(l: Literal<null>) : Literal<Type> {
+  switch(l.tag) {
+    case "num": return {...l, a: Type.Int};
+    case "bool": return {...l, a: Type.Bool};
+    case "none": return {...l, a: Type.None};
+  }
+}
+export function tcTypedVar(t: TypedVar<null>) : TypedVar<Type> {
+  return {...t, a: t.type};
+}
+export function tcVarDefs(d: Array<VarDef<null>>) : Array<VarDef<Type>> {
+  return d.map(def => {
+    let literal = tcLiteral(def.literal);
+    let typedVar = tcTypedVar(def.typedVar);
+
+    // Check literal matches labeled type
+    if(typedVar.a !== literal.a)
+      throwError(`Expected \`${typedVar.a}\`; but got \`${literal.a}\``);
+    else
+      // Assignment has none type
+      return {typedVar, literal, a: Type.None};
+  });
+}
+
+export function tcParameter(p: Parameter<null>) : Parameter<Type> {
+  return {...p, a: p.type};
+}
+export function tcParameters(p: Array<Parameter<null>>) : Array<Parameter<Type>> {
+  return p.map(param => {
+    return {...param, a: tcParameter(param).a};
+  });
+}
+export function tcFunDef(f: FunDef<null>) : FunDef<Type> {
+  // TODO
+  return f;
+}
+
+export function tcProgram(p : Program<null>) : Program<Type> {
+  // Collect all function names in env
+  const functions = new Map<string, FunDef<Type>>();
+  p.funDef.forEach(f => {
+    let funDef:FunDef<Type> = {name: f.name, params: tcParameters(f.params), retType: f.retType, varDef: f.varDef, body: f.body }
+    functions.set(funDef.name, funDef);
   });
 
+  // Type check body of functions and return type
+  let funDefs = p.funDef.map(tcFunDef);
+
+  // Collect all global definitions
+  let varDefs = tcVarDefs(p.varDef);
+  console.log("New var defs:", varDefs);
   const globals = new Map<string, Type>();
-  p.forEach(s => {
-    if(s.tag === "assign") {
-      globals.set(s.name, tcExpr(s.value, functions, globals));
-    }
-    else {
-      tcStmt(s, functions, globals, "none");
-    }
+  varDefs.forEach(v => {
+    // Collect all global vars from declarations
+    globals.set(v.typedVar.name, v.typedVar.a);
   });
+
+  // Type check statements
+  let stmts = p.stmts.map(s => {
+    return tcStmt(s, functions, globals, Type.None);
+  });
+
+  return {varDef: varDefs, funDef: funDefs, stmts};
+}
+
+export function throwError(message: string) {
+  throw new Error(`TypeError: ${message}`);
 }
