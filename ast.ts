@@ -14,23 +14,17 @@ export type Parameter<A> =
 
 export type Stmt<A> =
   | { a?: A, tag: "assign", name: string, value: Expr<A> }
+  | { a?: A, tag: "if", ifCond: Expr<A>, ifStmt: Array<Stmt<A>>, elifCond?: Expr<A>, elifStmt?: Array<Stmt<A>>, elseStmt?: Array<Stmt<A>> }
+  | { a?: A, tag: "while", cond: Expr<A>, body: Array<Stmt<A>> }
+  | { a?: A, tag: "pass" }
+  | { a?: A, tag: "return", retExpr?: Expr<A> }
   | { a?: A, tag: "expr", expr: Expr<A> }
-  | { a?: A, tag: "define", name: string, params: Array<Parameter<A>>, ret: Type, body: Array<Stmt<A>> }
-  | { a?: A, tag: "return", value: Expr<A> }
-
-// export type Stmt<A> =
-//   | { a?: A, tag: "if", cond: Expr<A>, ifExpr: Expr<A>, elif?: Expr<A>, elifExpr?: Expr<A>, else?: Expr<A>, elseExpr: Expr<A> }
-//   | { a?: A, tag: "while", cond: Expr<A>, body: Expr<A> }
-//   | { a?: A, tag: "pass" }
-//   | { a?: A, tag: "assign", name: string, value: Expr<A> }
-//   | { a?: A, tag: "return", retExpr: Expr<A> }
-//   | { a?: A, tag: "expr", expr: Expr<A> }
 
 export type Expr<A> = 
   | { a?: A, tag: "literal", value: Literal<A> }
   | { a?: A, tag: "id", name: string }
-  | { a?: A, tag: "unop", expr: Expr<A> }
-  | { a?: A, tag: "biop", left: Expr<A>, right: Expr<A> }
+  | { a?: A, tag: "unop", op: UnOp, expr: Expr<A> }
+  | { a?: A, tag: "biop", op: BiOp, left: Expr<A>, right: Expr<A> }
   | { a?: A, tag: "paren", expr: Expr<A> }
   | { a?: A, tag: "call", name: string, args: Array<Expr<A>> }
 
