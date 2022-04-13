@@ -129,10 +129,8 @@ export function tcStmt(s: Stmt<null>, funEnv: FunEnv, varEnv: BodyEnv, varDecEnv
 
       // If block returned expected type, check other blocks
       var curRetValue = {returned: false, returnType: Type.None};
-      var mayReturn = false;
       if(retValue.returned) {
         curRetValue = {returned: retValue.returned, returnType: retValue.returnType};
-        mayReturn = true;
       }
 
       // Check potential else
@@ -141,13 +139,12 @@ export function tcStmt(s: Stmt<null>, funEnv: FunEnv, varEnv: BodyEnv, varDecEnv
 
         // Else branch doesn't return anything, reset return type to none
         if(!retValue.returned) curRetValue.returned = false;
-        else mayReturn = true;
 
-        return [{ tag: "if", ifCond, ifStmt, elseStmt, mayReturn, a: Type.None }, curRetValue];
+        return [{ tag: "if", ifCond, ifStmt, elseStmt, allReturn: curRetValue.returned, a: Type.None }, curRetValue];
       } else {
         // No else, reset return type
         curRetValue.returned = false;
-        return [{ tag: "if", ifCond, ifStmt, mayReturn, a: Type.None}, curRetValue];
+        return [{ tag: "if", ifCond, ifStmt, allReturn: curRetValue.returned, a: Type.None}, curRetValue];
       }
   }
 }
@@ -245,8 +242,8 @@ export function tcProgram(p : Program<null>) : Program<Type> {
 
   var functions = new Map<string, [Type[], Type]>();
   // Add FunDef stubs for external print to funEnv
-  functions.set("print_int", [[Type.Int], Type.None]);
-  functions.set("print_bool", [[Type.Bool], Type.None]);
+  functions.set("print_int", [[Type.Int], Type.Int]);
+  functions.set("print_bool", [[Type.Bool], Type.Bool]);
 
   // Collect all function names in env to allow recursive calls
   p.funDef.forEach(f => {

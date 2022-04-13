@@ -12,8 +12,10 @@ document.addEventListener("DOMContentLoaded", async () => {
       const wat = compile(program);
       const code = document.getElementById("generated-code");
       code.textContent = wat;
-      const result = await run(wat, output);
-      output.textContent += String(result);
+      // const result = await run(wat, output);
+      output.textContent += "Output:\n";
+      await run(wat, output);
+      // output.textContent += String(result);
       output.setAttribute("style", "color: black");
     }
     catch(e) {

@@ -11,12 +11,12 @@ export async function run(watSource : string, output?: HTMLElement) : Promise<nu
       print_int: (arg : any) => {
         console.log("Int(", arg, ")");
         console.log("output:", output);
-        if(output !== undefined) output.textContent += (arg + "\n");
+        if(output !== undefined) output.textContent += (arg + " ");
         return arg;
       },
       print_bool: (arg: any) => {
         console.log("Bool(", (arg == 1? true: false), ")");
-        if(output !== undefined) output.textContent += ((arg == 1? true: false) + "\n");
+        if(output !== undefined) output.textContent += ((arg == 1? true: false) + " ");
         return arg;
       },
     },
@@ -102,9 +102,10 @@ export function codeGenStmt(stmt : Stmt<Type>, varDecEnv: string[]) : Array<stri
       return [`nop`];
     case "expr":
       // Store value to $$expr to clean up stack
-      var expr = codeGenExpr(stmt.expr, varDecEnv).concat([`(local.set $$expr)`]);
-      console.log("Code gen expr:", expr);
-      return expr;
+      var expr = codeGenExpr(stmt.expr, varDecEnv);
+      console.log("Code gen expr:", expr, stmt.expr.tag, stmt.expr.a);
+      if(stmt.expr.tag !== "call" || stmt.expr.a !== Type.None) return expr.concat([`(local.set $$expr)`]);
+      else return expr;
     case "if":
       console.log("If:", stmt);
       // Compute condition
@@ -115,14 +116,14 @@ export function codeGenStmt(stmt : Stmt<Type>, varDecEnv: string[]) : Array<stri
       });
       if(stmt.elseStmt === undefined) {
         // Just if
-        return [`${cond.join("\n")}\n(if ${stmt.mayReturn? `(result i32)`: ""}\n(then\n${ifStmt.join("\n")}))`];
+        return [`${cond.join("\n")}\n(if\n(then\n${ifStmt.join("\n")}))`];
       } else {
         // With else
         var elseStmt: Array<string> = [];
         stmt.elseStmt.forEach(s => {
           elseStmt = elseStmt.concat(codeGenStmt(s, varDecEnv));
         });
-        return [`${cond.join("\n")}\n(if ${stmt.mayReturn? `(result i32)`: ""}\n(then\n${ifStmt.join("\n")}\n)\n(else\n${elseStmt.join("\n")}))`];
+        return [`${cond.join("\n")}\n(if ${stmt.allReturn? "(result i32)": ""}\n(then\n${ifStmt.join("\n")}\n)\n(else\n${elseStmt.join("\n")}))`];
       }
     case "while":
       var cond = codeGenExpr(stmt.cond, varDecEnv);
@@ -130,7 +131,7 @@ export function codeGenStmt(stmt : Stmt<Type>, varDecEnv: string[]) : Array<stri
       stmt.body.forEach(s => body = body.concat(codeGenStmt(s, varDecEnv)));
       console.log("Body:", stmt.body);
       loopCounter += 1;
-      return [`${cond.join("\n")}\n(if\n(then\n(loop $my_loop_${loopCounter}\n${body.join("\n")}\n${cond.join("\n")}\nbr_if $my_loop_${loopCounter}\n)))`];
+      return [`${cond.join("\n")}\n(if\n(then\n(loop $my_loop_${loopCounter}\n${body.join("\n")}\n${cond.join("\n")}\n(br_if $my_loop_${loopCounter}))))`];
   }
 }
 

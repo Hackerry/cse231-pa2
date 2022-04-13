@@ -6,12 +6,14 @@
 </head>
 <body>
   <div style="width:100%">
-    <button id="run" style="display:block">Run!</button>
+    <div>
+      <button id="run">Run!</button>
+      <pre id="output"></pre>
+    </div>
     <div style="width:100%;float:left;">
-      <div style="width:45%;display:inline-block;"><textarea style="width: 100%; height: 40em;" id="user-code"></textarea></div>
+      <div style="width:45%;display:inline-block;"><textarea spellcheck="false" style="width: 100%; height: 40em;" id="user-code"></textarea></div>
       <div style="width:45%;display:inline-block;vertical-align:top;overflow:scroll;"><pre style="width:100%;display:block;" id="generated-code"></pre></div>
     </div>
-    <div style="clear:both;"><pre style="display:inline-block;" id="output"></pre></div>
   </div>
 </body>
 </html>
