@@ -14,7 +14,7 @@ export type Parameter<A> =
 
 export type Stmt<A> =
   | { a?: A, tag: "assign", name: string, value: Expr<A> }
-  | { a?: A, tag: "if", ifCond: Expr<A>, ifStmt: Array<Stmt<A>>, elifCond?: Expr<A>, elifStmt?: Array<Stmt<A>>, elseStmt?: Array<Stmt<A>> }
+  | { a?: A, tag: "if", ifCond: Expr<A>, ifStmt: Array<Stmt<A>>, elseStmt?: Array<Stmt<A>>, mayReturn?: boolean }
   | { a?: A, tag: "while", cond: Expr<A>, body: Array<Stmt<A>> }
   | { a?: A, tag: "pass" }
   | { a?: A, tag: "return", retExpr?: Expr<A> }

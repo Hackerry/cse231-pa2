@@ -3,18 +3,22 @@ import {Stmt, Expr, Type, VarDef, FunDef, BiOp} from './ast';
 import {parseProgram} from './parser';
 import { tcProgram } from './tc';
 
-export async function run(watSource : string) : Promise<number> {
+export async function run(watSource : string, output?: HTMLElement) : Promise<number> {
   const wabtApi = await wabt();
 
   var importObject = {
     imports: {
       print_int: (arg : any) => {
         console.log("Int(", arg, ")");
+        console.log("output:", output);
+        if(output !== undefined) output.textContent += (arg + "\n");
         return arg;
       },
       print_bool: (arg: any) => {
         console.log("Bool(", (arg == 1? true: false), ")");
-      }
+        if(output !== undefined) output.textContent += ((arg == 1? true: false) + "\n");
+        return arg;
+      },
     },
   };
 
@@ -31,7 +35,7 @@ export async function run(watSource : string) : Promise<number> {
 
 let loopCounter = 0;
 
-export function codeGenExpr(expr : Expr<Type>) : Array<string> {
+export function codeGenExpr(expr : Expr<Type>, varDecEnv: string[]) : Array<string> {
   switch(expr.tag) {
     case "literal":
       let literalVal = expr.value
@@ -42,25 +46,28 @@ export function codeGenExpr(expr : Expr<Type>) : Array<string> {
         case "none": return [`(i32.const -1)`];
         default: return [];   // Do nothing for None
       }
-    case "id": return [`(local.get $${expr.name})`];
+    case "id":
+      // This is local var
+      if(varDecEnv.indexOf(expr.name) > -1) return [`(local.get $${expr.name})`];
+      else return [`(global.get $${expr.name})`];
     case "unop":
-      var value = codeGenExpr(expr.expr);
+      var value = codeGenExpr(expr.expr, varDecEnv);
       if(expr.a === Type.Int) return [`(i32.const 0)`].concat(value.concat([`(i32.sub)`]));
       else return [`(i32.const 1)`].concat(value.concat([`(i32.sub)`]));
     case "biop":
-      var arg1 = codeGenExpr(expr.left);
-      var arg2 = codeGenExpr(expr.right);
-      console.log("Arg1:", arg1, arg2, expr.left, expr.right);
+      var arg1 = codeGenExpr(expr.left, varDecEnv);
+      var arg2 = codeGenExpr(expr.right, varDecEnv);
       var op = codeGenBinOp(expr.op);
+      console.log("Bin OP:", [...arg1, ...arg2, op]);
       return [...arg1, ...arg2, op]
     case "paren":
-      return codeGenExpr(expr.expr);
+      return codeGenExpr(expr.expr, varDecEnv);
     case "call":
       var args: string[] = [];
       expr.args.forEach(arg => {
-        args = args.concat(codeGenExpr(arg));
+        args = args.concat(codeGenExpr(arg, varDecEnv));
       });
-      return args.concat([`call $${expr.name}`]);
+      return args.concat([`(call $${expr.name})`]);
   }
 }
 function codeGenBinOp(op : BiOp) : string {
@@ -80,55 +87,71 @@ function codeGenBinOp(op : BiOp) : string {
     default: return "(i32.eq)";
   }
 }
-export function codeGenStmt(stmt : Stmt<Type>) : Array<string> {
+export function codeGenStmt(stmt : Stmt<Type>, varDecEnv: string[]) : Array<string> {
   switch(stmt.tag) {
     case "assign":
-      return codeGenExpr(stmt.value).concat([`(local.set $${stmt.name})`]);
+      console.log("assign:", stmt.name, varDecEnv);
+      var value = codeGenExpr(stmt.value, varDecEnv);
+      if(varDecEnv.indexOf(stmt.name) > -1) return value.concat([`(local.set $${stmt.name})`]);
+      else return value.concat([`(global.set $${stmt.name})`]);
     case "return":
-      if(stmt.retExpr !== undefined) return codeGenExpr(stmt.retExpr).concat("return");
-      else return [`return`];
+      console.log("Return expr:", stmt.retExpr);
+      if(stmt.retExpr !== undefined) return codeGenExpr(stmt.retExpr, varDecEnv).concat(["(return)"]);
+      else return [`(return)`];
     case "pass":
       return [`nop`];
     case "expr":
-      return codeGenExpr(stmt.expr);
+      // Store value to $$expr to clean up stack
+      var expr = codeGenExpr(stmt.expr, varDecEnv).concat([`(local.set $$expr)`]);
+      console.log("Code gen expr:", expr);
+      return expr;
     case "if":
+      console.log("If:", stmt);
       // Compute condition
-      var cond = codeGenExpr(stmt.ifCond);
+      var cond = codeGenExpr(stmt.ifCond, varDecEnv);
       var ifStmt: Array<string> = [];
       stmt.ifStmt.forEach(s => {
-        ifStmt = ifStmt.concat(codeGenStmt(s));
+        ifStmt = ifStmt.concat(codeGenStmt(s, varDecEnv));
       });
-      if(stmt.elifCond === undefined && stmt.elseStmt === undefined) {
+      if(stmt.elseStmt === undefined) {
         // Just if
-        return [`(${cond}\n(if\n(then\n${ifStmt.join("\n")})\n(else)))`];
-      } else if(stmt.elifCond !== undefined && stmt.elifStmt !== undefined) {
-        // Both else if and else
-        var elifStmt: Array<string> = [];
-        var elseStmt: Array<string> = [];
-        stmt.elifStmt.forEach(s => elifStmt = elifStmt.concat(codeGenStmt(s)));
-        stmt.elseStmt.forEach(s => elseStmt = elseStmt.concat(codeGenStmt(s)));
-        return [`(${cond}\n(if\n(then\n${ifStmt.join("\n")}\n)\n(else\n${codeGenExpr(stmt.elifCond)}\n(if\n(then\n${elifStmt.join("\n")}\n)\n(else\n${elseStmt.join("\n")})))))`];
-      } else if(stmt.elifCond !== undefined) {
-        // Only else if
-        var elifStmt: Array<string> = [];
-        stmt.elifStmt.forEach(s => elifStmt = elifStmt.concat(codeGenStmt(s)));
-        return [`(${cond}\n(if\n(then\n${ifStmt.join("\n")}\n)\n(else\n${codeGenExpr(stmt.elifCond)}\n(if\n(then\n${elifStmt.join("\n")}\n)\n(else)))))`];
+        return [`${cond.join("\n")}\n(if ${stmt.mayReturn? `(result i32)`: ""}\n(then\n${ifStmt.join("\n")}))`];
       } else {
-        // Only else
+        // With else
         var elseStmt: Array<string> = [];
-        stmt.elseStmt.forEach(s => elseStmt = elseStmt.concat(codeGenStmt(s)));
-        return [`(${cond}\n(if\n(then\n${ifStmt.join("\n")}\n)\n(else\n${elseStmt.join("\n")})))`];
+        stmt.elseStmt.forEach(s => {
+          elseStmt = elseStmt.concat(codeGenStmt(s, varDecEnv));
+        });
+        return [`${cond.join("\n")}\n(if ${stmt.mayReturn? `(result i32)`: ""}\n(then\n${ifStmt.join("\n")}\n)\n(else\n${elseStmt.join("\n")}))`];
       }
     case "while":
-      var cond = codeGenExpr(stmt.cond);
+      var cond = codeGenExpr(stmt.cond, varDecEnv);
       var body: Array<string> = [];
-      stmt.body.forEach(s => body = body.concat(codeGenStmt(s)));
+      stmt.body.forEach(s => body = body.concat(codeGenStmt(s, varDecEnv)));
+      console.log("Body:", stmt.body);
       loopCounter += 1;
-      return [`${cond}\n(if\n(then\n(loop $my_loop_${loopCounter}\n${body}\n${cond}\nbr_if $my_loop_${loopCounter}\n))(else))`];
+      return [`${cond.join("\n")}\n(if\n(then\n(loop $my_loop_${loopCounter}\n${body.join("\n")}\n${cond.join("\n")}\nbr_if $my_loop_${loopCounter}\n)))`];
   }
 }
 
-export function codeGenVarDefs(varDefs: Array<VarDef<Type>>): string[] {
+export function codeGenVarDefs(varDefs: Array<VarDef<Type>>, global: boolean): string[] {
+  // Global var defs
+  if(global) {
+    return varDefs.map(v => {
+      var value;
+      switch(v.literal.tag) {
+        case "num":
+          value = v.literal.value;
+          break;
+        case "bool":
+          value = v.literal.value ? 1: 0;
+          break;
+      }
+      return `(global $${v.typedVar.name} (mut i32) (i32.const ${value}))`;
+    });
+  }
+
+  // Local var defs
   var varDef: string[] = [];
   var varInit: string[] = [];
   varDefs.forEach(v => {
@@ -152,8 +175,9 @@ export function codeGenFunDef(funDef: FunDef<Type>): string {
   console.log("Code gen fun:", funDef);
   var name = funDef.name;
   var params = funDef.params.map(p => `(param $${p.name} i32)`);
-  var varDefs = codeGenVarDefs(funDef.varDef);
-  var body = funDef.body.map(s => codeGenStmt(s).join("\n"));
+  var varDefs = ["(local $$expr i32)"].concat(codeGenVarDefs(funDef.varDef, false));
+  var varDecEnv = funDef.params.map(p => p.name).concat(funDef.varDef.map(v => v.typedVar.name));
+  var body = funDef.body.map(s => codeGenStmt(s, varDecEnv).join("\n"));
   if(funDef.retType === Type.None) return `(func $${name} ${params.join(" ")}\n${varDefs.join("\n")}\n${body.join("\n")})`;
   else return `(func $${name} ${params.join(" ")} (result i32)\n${varDefs.join("\n")}\n${body.join("\n")})`;
 }
@@ -163,7 +187,7 @@ export function compile(source : string) : string {
   let program = tcProgram(ast);
 
   // Generate global variables for variable declarations
-  var vars = codeGenVarDefs(program.varDef);
+  var vars = codeGenVarDefs(program.varDef, true);
 
   // Generate functions
   var funs : Array<string> = [];
@@ -172,17 +196,17 @@ export function compile(source : string) : string {
   // Putting things together
   const allVarDefs = vars.join("\n");
   const allFuns = funs.join("\n\n");
-  const allStmts = program.stmts.map(s => codeGenStmt(s).join("\n")).join("\n");
+  const allStmts = program.stmts.map(s => codeGenStmt(s, []).join("\n")).join("\n");
 
   const code = `
   (module
-    (func $print_int (import "imports" "print_int") (param i32))
-    (func $print_bool (import "imports" "print_bool") (param i32))
+    (func $print_int (import "imports" "print_int") (param i32) (result i32))
+    (func $print_bool (import "imports" "print_bool") (param i32) (result i32))
+    ${allVarDefs}
     ${allFuns}
     (func (export "_start")
-      ${allVarDefs}
+      (local $$expr i32)
       ${allStmts}
-      return
     )
   ) 
 `

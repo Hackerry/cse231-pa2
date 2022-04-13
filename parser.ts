@@ -7,8 +7,11 @@ export function parseProgram(source : string) : Program<null> {
 
   // Collect pieces of program
   t.firstChild();
+  console.log("Collect var defs...");
   let varDef: Array<VarDef<null>> = collectVarDefs(source, t);
+  console.log("Collect fun defs...");
   let funDef: Array<FunDef<null>> = collectFunDefs(source, t);
+  console.log("Collect statements...");
   let stmts: Array<Stmt<null>> = traverseStmts(source, t);
   console.log("All var defs:", varDef);
   console.log("All fun defs:", funDef);
@@ -77,10 +80,12 @@ export function collectFunDefs(s: string, t: TreeCursor) : Array<FunDef<null>> {
           retType = getType(s, t);
           t.nextSibling();
         }                                       // At body
+        console.log("Body is:", s.substring(t.from, t.to));
         t.firstChild();                         // Go to :
         t.nextSibling();                        // Go to 1st body statement
         let varDef = collectVarDefs(s, t);
         t.nextSibling();                        // Skip ":"
+        console.log("After var is:", s.substring(t.from, t.to));
         let body = traverseStmts(s, t);
 
         funDefs.push({name, params, retType, varDef, body});
@@ -109,7 +114,7 @@ export function traverseStmts(s: string, t: TreeCursor) : Array<Stmt<null>> {
   let stmts: Array<Stmt<null>> = [];
 
   do {
-    console.log("Stmt:", s.substring(t.from, t.to));
+    console.log("Stmt:", s.substring(t.from, t.to), "[", t.type.name, "]");
     switch(t.type.name) {
       // Assignments
       case "AssignStatement":
@@ -135,7 +140,10 @@ export function traverseStmts(s: string, t: TreeCursor) : Array<Stmt<null>> {
         t.nextSibling();    // Go to cond
         var cond = traverseExpr(s, t);
         t.nextSibling();    // Go to body
+        t.firstChild();     // Go to ":"
+        t.nextSibling();    // Go to first statement
         var body = traverseStmts(s, t);
+        t.parent();
         t.parent();
         stmts.push({ tag: "while", cond, body });
         break;
@@ -146,9 +154,7 @@ export function traverseStmts(s: string, t: TreeCursor) : Array<Stmt<null>> {
       // Return statement
       case "ReturnStatement":
         t.firstChild();
-        console.log("child:", s.substring(t.from, t.to));
         t.nextSibling();
-        console.log(`sib:"${s.substring(t.from, t.to)}"`);
         if(s.substring(t.from, t.to) === "") {
           stmts.push({ tag: "return" });
         } else {
@@ -176,10 +182,12 @@ export function traverseStmts(s: string, t: TreeCursor) : Array<Stmt<null>> {
 }
 
 export function traverseExpr(s: string, t: TreeCursor) : Expr<null> {
+  console.log("Expr:", s.substring(t.from, t.to), "[", t.type.name, "]");
   switch(t.type.name) {
     // Literals
     case "Number":
     case "Boolean":
+    case "None":
       return { tag: "literal", value: traverseLiteral(s, t) };
     // Ids
     case "VariableName":
@@ -239,12 +247,9 @@ export function traverseExpr(s: string, t: TreeCursor) : Expr<null> {
       return { tag: "paren", expr }
     // Call expressions
     case "CallExpression":
-      console.log("Call:", s.substring(t.from, t.to));
       t.firstChild();     // Go to name
-      console.log("name:", s.substring(t.from, t.to));
       var name = s.substring(t.from, t.to);
       t.nextSibling();    // Go to argList
-      console.log("arglist:", s.substring(t.from, t.to));
       var args = traverseArgs(s, t);
       t.parent();
       return { tag: "call", name, args }
@@ -258,7 +263,10 @@ export function traverseArgs(s: string, t: TreeCursor) : Array<Expr<null>> {
 
   while(t.nextSibling()) {
     // Empty arg list
-    if(s.substring(t.from, t.to) === ")") return args;
+    if(s.substring(t.from, t.to) === ")") {
+      t.parent();
+      return args;
+    }
     args.push(traverseExpr(s, t));
     t.nextSibling();  // Go to "," or ")"
   }
@@ -314,19 +322,24 @@ export function traverseIf(s: string, t: TreeCursor) : Stmt<null> {
     // Elif ends
     if(!t.nextSibling()) {
       t.parent();
-      return { tag: "if", ifCond, ifStmt, elifCond, elifStmt };
+      return { tag: "if", ifCond, ifStmt, elseStmt: [{tag: "if", ifCond: elifCond, ifStmt: elifStmt}] };
     }
 
+    t.nextSibling();  // Go to elseBody
     t.firstChild();   // Go to ":"
     t.nextSibling();  // Go to elseStmt
     var elseStmt = traverseStmts(s, t);
     t.parent();
-    return { tag: "if", ifCond, ifStmt, elifCond, elifStmt, elseStmt };
+    t.parent();
+
+    // Elif and else
+    return { tag: "if", ifCond, ifStmt, elseStmt: [{tag: "if", ifCond: elifCond, ifStmt: elifStmt, elseStmt}] };
   } else {
     // Else only
     t.firstChild();   // Go to ":"
     t.nextSibling();  // Go to elseStmt
     var elseStmt = traverseStmts(s, t);
+    t.parent();
     t.parent();
     return { tag: "if", ifCond, ifStmt, elseStmt };
   }

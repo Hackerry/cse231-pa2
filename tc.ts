@@ -19,7 +19,6 @@ export function tcExpr(e : Expr<null>, funEnv : FunEnv, varEnv : BodyEnv, varDec
         throwError(`Not a variable: ${e.name}`);
       }
       if(varDecEnv.has(e.name)) {
-        console.log("Decl type:", varDecEnv.get(e.name));
         // Prioritize vars declared in this scope
         return {...e, a: varDecEnv.get(e.name)};
       } else {
@@ -58,7 +57,9 @@ export function tcExpr(e : Expr<null>, funEnv : FunEnv, varEnv : BodyEnv, varDec
         // Check both operands are of same type
         if(left.a !== right.a || left.a == Type.None)
           throwError(`Cannot apply "${e.op}" on types "${left.a}" and "${right.a}"`);
+        return { tag: "biop", op: e.op, left, right, a: Type.Bool };
       } else {
+        // is operator
         // Check both operands are none
         if(left.a !== Type.None || right.a !== Type.None)
           throwError(`Cannot apply "${e.op}" on types "${left.a}" and "${right.a}"`);
@@ -96,11 +97,11 @@ export function tcStmt(s: Stmt<null>, funEnv: FunEnv, varEnv: BodyEnv, varDecEnv
       var expectedType = varDecEnv.get(s.name);
       if(value.a !== expectedType) throwError(`Expected type "${expectedType}; got ${value.a}"`);
 
-      return [{ tag: "assign", name: s.name, value, a: expectedType }, {returned: false}];
+      return [{ tag: "assign", name: s.name, value, a: Type.None }, {returned: false}];
     }
     case "expr":
       var expr = tcExpr(s.expr, funEnv, varEnv, varDecEnv);
-      return [{ tag: "expr", expr }, {returned: false}]
+      return [{ tag: "expr", expr, a: expr.a }, {returned: false}]
     case "pass":
       return [{ ...s, a: Type.None }, {returned: false}];
     case "return":
@@ -128,42 +129,26 @@ export function tcStmt(s: Stmt<null>, funEnv: FunEnv, varEnv: BodyEnv, varDecEnv
 
       // If block returned expected type, check other blocks
       var curRetValue = {returned: false, returnType: Type.None};
-      if(retValue.returned) curRetValue = {...retValue, returnType: retValue.returnType};
-
-      // Check potential elif
-      if(s.elifCond !== undefined) {
-        var elifCond = tcExpr(s.elifCond, funEnv, varEnv, varDecEnv);
-        if(elifCond.a !== Type.Bool) throwError(`Condition expression cannot be of type "${elifCond.a}"`);
-
-        // Check elif block
-        var [elifStmt, retValue] = tcBlock(s.elifStmt, funEnv, varEnv, varDecEnv, expectReturnType);
-
-        // Elif branch doesn't return anything, reset return type to none
-        if(!retValue.returned) curRetValue.returned = false;
-
-        // Check potential else
-        if(s.elseStmt !== undefined) {
-          var [elseStmt, retValue] = tcBlock(s.elseStmt, funEnv, varEnv, varDecEnv, expectReturnType);
-          // Else branch doesn't return anything, reset return type to none
-          if(!retValue.returned) curRetValue.returned = false;
-
-          return [{ tag: "if", ifCond, ifStmt, elifCond, elifStmt, elseStmt, a: Type.None }, curRetValue];
-        }
-        
-        return [{ tag: "if", ifCond, ifStmt, elifCond, elifStmt, a: Type.None}, curRetValue];
+      var mayReturn = false;
+      if(retValue.returned) {
+        curRetValue = {returned: retValue.returned, returnType: retValue.returnType};
+        mayReturn = true;
       }
 
       // Check potential else
       if(s.elseStmt !== undefined) {
         var [elseStmt, retValue] = tcBlock(s.elseStmt, funEnv, varEnv, varDecEnv, expectReturnType);
+
         // Else branch doesn't return anything, reset return type to none
         if(!retValue.returned) curRetValue.returned = false;
+        else mayReturn = true;
 
-        return [{ tag: "if", ifCond, ifStmt, elseStmt, a: Type.None }, curRetValue];
+        return [{ tag: "if", ifCond, ifStmt, elseStmt, mayReturn, a: Type.None }, curRetValue];
+      } else {
+        // No else, reset return type
+        curRetValue.returned = false;
+        return [{ tag: "if", ifCond, ifStmt, mayReturn, a: Type.None}, curRetValue];
       }
-      
-      // Just if
-      return [{ tag: "if", ifCond, ifStmt, a: Type.None}, curRetValue];
   }
 }
 
@@ -171,6 +156,7 @@ export function tcBlock(stmts: Array<Stmt<null>>, funEnv: FunEnv, varEnv: BodyEn
   // Check statements
   var typedStmts = [];
   var blockRetType = undefined;
+  console.log("Check block stmts:", stmts);
   for(var i = 0; i < stmts.length; i++) {
     var stmt = stmts[i];
     var [typedStmt, retValue] = tcStmt(stmt, funEnv, varEnv, varDecEnv, expectReturnType);
@@ -236,8 +222,14 @@ export function tcFunDef(f: FunDef<null>, funEnv: FunEnv, globalEnv: BodyEnv, va
 
   // Type check statements
   var [stmts, retValue] = tcBlock(f.body, funEnv, globalEnv, varEnv, f.retType);
-  if(!retValue.returned && f.retType !== Type.None) throwError(`Expected \`${f.retType}\`; but got \`${Type.None}}\``);
-  else if(retValue.returned && retValue.returnType !== f.retType) throwError(`Expected \`${f.retType}\`; but got \`${retValue.returnType}}\``);
+  console.log("Body stmts:", stmts);
+  if(!retValue.returned && f.retType !== Type.None) {
+    if(stmts.length > 0 && stmts[stmts.length-1].tag === "if")
+      throwError(`All paths in this function/method must have a return statement: ${f.name}`);
+    else
+      throwError(`Expected \`${f.retType}\`; but got \`${Type.None}\``);
+  }
+  else if(retValue.returned && retValue.returnType !== f.retType) throwError(`Expected \`${f.retType}\`; but got \`${retValue.returnType}\``);
 
   return { ...f, params: typedParams, varDef: typedVarDec, body: stmts, a: f.retType};
 }

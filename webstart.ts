@@ -7,17 +7,18 @@ document.addEventListener("DOMContentLoaded", async () => {
   runButton.addEventListener("click", async () => {
     const program = userCode.value;
     const output = document.getElementById("output");
+    output.textContent = "";
     try {
       const wat = compile(program);
       const code = document.getElementById("generated-code");
       code.textContent = wat;
-      const result = await run(wat);
-      output.textContent = String(result);
+      const result = await run(wat, output);
+      output.textContent += String(result);
       output.setAttribute("style", "color: black");
     }
     catch(e) {
       console.error(e)
-      output.textContent = String(e);
+      output.textContent += String(e);
       output.setAttribute("style", "color: red");
     }
   });
